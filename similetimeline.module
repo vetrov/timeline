@@ -1,0 +1,120 @@
+<?php
+// $Id$
+
+/**
+ * @file
+ * A visualization module
+ *
+ * This module provides timeline visualization for nodes and ratings from external xml
+ */
+
+/**
+ * Implements hook_help()
+ */
+
+function similetimeline_help($path) {
+    if ($path == 'admin/help#similetimeline') {
+        return t('Simile timeline module help');
+    }
+}
+
+/**
+ * Implements hook_menu
+ */
+
+function similetimeline_menu() {
+    $items = array();
+
+    $items['timeline'] = array(
+        'page callback' => 'similetimeline_common_view',
+        'access callback' => TRUE // allow access to all users
+    );
+
+    return $items;
+}
+
+/**
+ * Common view handler for both nodes and ratings pages
+ */
+
+function similetimeline_common_view($type = '') {
+    if ($type == 'nodes') {
+        $data = _similetimeline_prepare_nodes_data();
+        $units = 'HOUR';
+    } elseif ($type == 'ratings') {
+        $data = _similetimeline_prepare_ratings_data();
+        $units = 'MINUTE';
+    } else {
+        return '';
+    }
+
+    $maxdate = _similetimeline_get_max_date($data);
+
+    drupal_add_js('http://static.simile.mit.edu/timeline/api-2.3.0/timeline-api.js', array('group' => JS_LIBRARY));
+    drupal_add_js(array('similetimeline' => array('start' => $maxdate, 'units' => $units, 'events' => $data)), 'setting');
+    drupal_add_js(drupal_get_path('module', 'similetimeline') . '/js/init.js', array('weight' => 999));
+
+    $content = '<div id="js-timeline" style="height: 250px; border: 1px solid #aaa"></div>';
+    return $content;
+}
+
+/**
+ * Preparing data for nodes timeline
+ */
+
+function _similetimeline_prepare_nodes_data() {
+    $data = array();
+    $result = db_query('SELECT nr.nid, nr.title, nr.timestamp, fr.body_value FROM node
+        LEFT JOIN node_revision AS nr ON node.nid=nr.nid
+        LEFT JOIN field_revision_body AS fr ON node.nid=fr.revision_id;');
+
+    foreach ($result as $record) {
+        $data[] = array(
+            'start' => date('r', $record->timestamp),
+            'title' => $record->title,
+            'description' => substr($record->body_value, 0, 100) . '...'
+        );
+    };
+
+    return $data;
+}
+
+/**
+ * Preparing data for ratings timeline
+ */
+
+function _similetimeline_prepare_ratings_data() {
+    // simple caching for 5 minutes
+    $cache_file = '/tmp/_recent.xml';
+    if (file_exists($cache_file) && (filemtime($cache_file) > (time() - 60 * 5 ))) {
+        $xml = file_get_contents($cache_file);
+    } else {
+        $xml = file_get_contents('http://people.mywot.com/temp/recent.xml');
+        file_put_contents($cache_file, $xml, LOCK_EX);
+    }
+
+    $ratings = new SimpleXMLElement($xml);
+
+    $data = array();
+    foreach ($ratings as $rating) {
+        $data[] = array(
+            'start' => date('r', strtotime((string)$rating['updated'])),
+            'title' => (string)$rating['name'],
+            'description' => ''
+        );
+    };
+
+    return $data;
+}
+
+/**
+ * Finds maximum date in timeline data
+ */
+
+function _similetimeline_get_max_date($data = array()) {
+    $dates = array_map(function ($item) {
+        return strtotime($item['start']);
+    }, $data);
+
+    return date('r', max($dates));
+}

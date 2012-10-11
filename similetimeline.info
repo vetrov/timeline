@@ -1,0 +1,8 @@
+;$Id$
+
+name = Simile timeline
+description = Simile timeline module
+package = User modules
+core = 7.x
+files[] = similetimeline.module
+php = 5.3
